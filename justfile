@@ -30,6 +30,15 @@ test:
     cargo test --manifest-path testing/Cargo.toml
     cargo test --manifest-path benchmarks/Cargo.toml
 
+# Install the nightly toolchain with Miri (needed once, and by `ci`)
+miri-setup:
+    rustup toolchain install nightly --component miri
+
+# Run tests under Miri to catch undefined behaviour (needs nightly; see miri-setup)
+miri:
+    cargo +nightly miri test --manifest-path slimmap/Cargo.toml
+    cargo +nightly miri test --manifest-path testing/Cargo.toml
+
 # Run clippy with warnings treated as errors
 lint:
     cargo clippy --manifest-path slimmap/Cargo.toml --all-targets -- -D warnings
@@ -63,8 +72,8 @@ plot:
 # Benchmark, then plot the results
 bench-plot: bench plot
 
-# Everything CI would check: formatting, types, lints, tests
-ci: fmt-check check lint test
+# Everything CI would check: formatting, types, lints, tests, Miri
+ci: fmt-check check lint test miri
 
 # Remove build output from every crate
 clean:

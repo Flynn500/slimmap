@@ -2,5 +2,17 @@
 name = "slimmap"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/Flynn500/slimmap"
+readme = "README.md"
+keywords = ["map", "ordered", "compact", "no-std", "indexmap"]  # max 5
+categories = ["data-structures", "no-std"]
 
 [dependencies]
+equivalent = "1"
+foldhash = { version = "0.2.0", default-features = false }
+hashbrown = { version = "0.17.1", default-features = false }
+
+[features]
+default = ["std"]
+# Seeds the default hasher from OS randomness rather than address entropy.
+std = ["foldhash/std"]

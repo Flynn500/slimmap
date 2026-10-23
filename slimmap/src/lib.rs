@@ -1,72 +1,54 @@
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SlimMap<K, V> {
-    entries: Vec<(K, V)>,
-}
+//! An insertion-ordered map optimized for memory use.
+//!
+//! [`SlimMap`] is a single pointer wide (8 bytes on 64-bit targets) with the
+//! default hasher, and `Option<SlimMap<K, V>>` is the same size. An empty map
+//! does not allocate. The length and capacity live in a small header at the
+//! start of the heap allocation, followed directly by the entries.
+//!
+//! Small maps are searched linearly, which is fast and needs no extra memory.
+//! Once a map's capacity reaches a threshold, it also maintains a hash index
+//! so lookups stay O(1) as it grows.
+//!
+//! Iteration order is insertion order. [`SlimMap::remove`] preserves the
+//! order of the remaining entries; [`SlimMap::swap_remove`] is a faster
+//! alternative that does not.
+//!
+//! Equality, ordering and hashing all take entry order into account: two maps
+//! with the same entries in a different order are *not* equal.
+//!
+//! # Lookup keys
+//!
+//! Lookups accept any `Q` implementing [`Equivalent<K>`] and [`Hash`], so a
+//! `SlimMap<String, _>` can be queried with a `&str`. As with `HashMap` and
+//! `Borrow`, equivalent keys must produce identical hashes.
 
-impl<K: PartialEq, V> SlimMap<K, V> {
-    /// Creates an empty map.
-    pub fn new() -> Self {
-        SlimMap {
-            entries: Vec::new(),
-        }
-    }
+#![no_std]
+#![warn(missing_docs)]
 
-    /// Returns the number of entries.
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
+extern crate alloc;
 
-    /// Returns `true` if the map has no entries.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
+mod hasher;
+mod iter;
+mod layout;
+mod map;
+mod raw;
+mod traits;
 
-    fn position(&self, key: &K) -> Option<usize> {
-        self.entries.iter().position(|(k, _)| k == key)
-    }
+pub use equivalent::Equivalent;
+pub use hasher::{DefaultHashBuilder, DefaultHasher};
+pub use iter::{IntoIter, Iter, IterMut, Keys, Values, ValuesMut};
+pub use map::SlimMap;
 
-    /// Inserts a key-value pair. If the key was already present, its value is
-    /// replaced and the old value is returned.
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        match self.position(&key) {
-            Some(i) => Some(std::mem::replace(&mut self.entries[i].1, value)),
-            None => {
-                self.entries.push((key, value));
-                None
-            }
-        }
-    }
+// ---------------------------------------------------------------------------
+// Tuning
+// ---------------------------------------------------------------------------
 
-    /// Returns a reference to the value for `key`, if present.
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.position(key).map(|i| &self.entries[i].1)
-    }
+/// Maps with at least this capacity maintain a hash index; smaller maps are
+/// searched linearly. Benchmarks put the linear-scan crossover at roughly
+/// 40–100 entries depending on key type and cache state, so this errs low.
+const INDEX_MIN_CAP: usize = 64;
 
-    /// Returns a mutable reference to the value for `key`, if present.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.position(key).map(move |i| &mut self.entries[i].1)
-    }
-
-    /// Returns `true` if the map contains `key`.
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.position(key).is_some()
-    }
-
-    /// Removes `key` and returns its value, if present.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        let i = self.position(key)?;
-        let (_, value) = self.entries.swap_remove(i);
-        Some(value)
-    }
-
-    /// Removes all entries.
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-
-    /// Iterates over `(key, value)` pairs in insertion order (until a removal
-    /// reorders them).
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.entries.iter().map(|(k, v)| (k, v))
-    }
-}
+/// Smallest non-zero capacity when growing, matching `Vec` for typical
+/// element sizes. Exact-size constructors (`with_capacity`, `collect`,
+/// `shrink_to_fit`) can go below this.
+const MIN_NON_ZERO_CAP: usize = 4;
